@@ -7,3 +7,4 @@ PCL/__pycache__/
 Simulation/dataset/
 yolo_landing/runs/landing_pose/weights/
 yolo_landing/yolo_dataset/
+AGENTS.md
