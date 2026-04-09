@@ -1,0 +1,20 @@
+# ============================================================
+#  Simulation — 可复用火箭着陆段仿真数据集生成
+# ============================================================
+#
+#  安装: pip install -r requirements.txt
+#
+#  注: generate_trajectory.py 核心仿真仅依赖标准库,
+#      无需安装任何第三方包即可运行。
+
+# --- 图像渲染 (render_dataset.py) ---
+numpy>=1.24
+opencv-python>=4.8
+Pillow>=10.0
+
+# --- 轨迹可视化 (generate_trajectory.py --plot) ---
+matplotlib>=3.7
+
+# --- 深度学习训练 (train.py, 可选) ---
+# torch>=2.0
+# torchvision>=0.15

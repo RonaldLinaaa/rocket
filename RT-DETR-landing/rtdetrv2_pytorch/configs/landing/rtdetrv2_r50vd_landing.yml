@@ -1,0 +1,19 @@
+__include__: [
+  '../dataset/landing_keypoints.yml',
+  '../runtime.yml',
+  './include/dataloader.yml',
+  './include/optimizer.yml',
+  './include/rtdetrv2_r50vd_landing.yml',
+]
+
+output_dir: ./output/rtdetrv2_r50vd_landing
+
+print_freq: 50
+checkpoint_freq: 5
+use_ema: True
+use_amp: True
+sync_bn: False
+find_unused_parameters: False
+
+epoches: 60
+clip_max_norm: 0.1

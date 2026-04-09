@@ -1,0 +1,15 @@
+# PCL Pose Estimation — Requirements
+# 论文：Meng et al., "Satellite Pose Estimation via Single Perspective Circle and Line"
+# IEEE Trans. Aerospace and Electronic Systems, Vol. 54, No. 6, Dec. 2018
+
+# 核心数值计算
+numpy>=1.21.0
+
+# 计算机视觉（椭圆检测、PnP优化、图像处理）
+opencv-python>=4.5.0
+
+# 旋转表示与 Euler 角转换
+scipy>=1.7.0
+
+# 可选：用于可视化仿真结果
+matplotlib>=3.4.0

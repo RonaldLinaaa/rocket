@@ -1,0 +1,28 @@
+{
+  "blender": {
+    "landing_marker": {
+      "LZ_Z": 0.0,
+      "ring": {
+        "RING_R_OUT": 21.5,
+        "RING_R_IN": 18.5,
+        "RING_SEGS": 128,
+        "SLAB_TH": 0.08,
+        "thickness": 0.08
+      },
+      "h": {
+        "H_H": 18.0,
+        "H_T": 3.0,
+        "H_W": 10.8,
+        "H_HALF_W": 5.4
+      }
+    }
+  },
+  "pcl": {
+    "circle_radius_r": 20.0,
+    "h_half_width": 5.4,
+    "line_center_scoring": {
+      "enable": true,
+      "prefer_longer_when_close": true
+    }
+  }
+}

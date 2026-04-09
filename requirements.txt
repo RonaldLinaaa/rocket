@@ -1,0 +1,28 @@
+# ============================================================
+# Visible Light Visual Positioning - Landing Keypoint Detection
+# Python 3.11+  |  CUDA 11.8+ recommended
+# ============================================================
+
+# --- PyTorch (install first, match your CUDA version) ---
+# See https://pytorch.org/get-started/locally/
+torch>=2.1.0
+torchvision>=0.16.0
+
+# --- Common ---
+numpy>=1.24
+scipy>=1.11
+opencv-python>=4.8
+Pillow>=10.0
+PyYAML>=6.0
+tensorboard>=2.14
+matplotlib>=3.7
+tqdm>=4.65
+
+# --- RT-DETR (Scheme A) ---
+faster-coco-eval>=1.3
+
+# --- YOLOv8 (Scheme B) ---
+ultralytics>=8.1
+
+# --- Visualization ---
+plotly>=5.15
