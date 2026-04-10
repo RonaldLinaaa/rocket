@@ -21,14 +21,18 @@
 ```
 rocket/
 │
-├── datasets/                          # 数据集
-│   ├── rocket_render_01/rgb/          # 序列 1 图像 (2000 帧)
-│   ├── rocket_render_02/rgb/          # 序列 2 图像 (2000 帧)
+├── Simulation/                        # 轨迹 CSV + Blender 5.0 渲染脚本
+│   ├── generate_trajectory.py         # 6-DoF 轨迹数值仿真
+│   ├── generate_vertical_recovery_traj.py  # 可选：姿态扰动
+│   └── rocket_trajectory_blender.py   # 在 Blender 内运行：场景与渲染
+│
+├── datasets/                          # 数据与标注（大量路径见 .gitignore）
+│   ├── rocket_render_01/rgb/          # 序列 1 图像 (约 2000 帧)
+│   ├── rocket_render_02/rgb/          # 序列 2 图像 (约 2000 帧)
 │   ├── kp.json                        # 9 个关键点的 3D 坐标
 │   ├── annotations_coco_keypoints.json# COCO 格式关键点标注
 │   ├── annotations_coco_test.json     # 测试集标注 (含 range_label)
 │   ├── generate_coco_keypoints.py     # 标注生成脚本
-│   ├── rocket_trajectory_blender.py   # Blender 仿真脚本
 │   └── pretrain/
 │       ├── rtdetrv2_r50vd_6x_coco_ema.pth  # RT-DETR 预训练
 │       └── yolov8s-pose.pt                  # YOLOv8 预训练
@@ -112,8 +116,8 @@ pip install -r requirements.txt
 
 ### 2.1 数据来源
 
-使用 `datasets/rocket_trajectory_blender.py` 在 Blender 中仿真火箭垂直回收场景。  
-相机安装在火箭侧面，俯视地面着陆标志。两条轨迹共 4000 帧，按 7:2:1 划分 train/test/val。
+使用 `Simulation/rocket_trajectory_blender.py` 在 **Blender 5.0** 中仿真火箭垂直回收场景。  
+相机安装在火箭侧面，俯视地面着陆标志。两条轨迹共约 4000 帧，按 7:2:1 划分 train/test/val。
 
 ### 2.2 关键点定义 (`kp.json`)
 

@@ -1,7 +1,16 @@
 .claude/
 .cursor/
 .vscode/
-datasets/
+datasets/rocket_render_01/
+datasets/rocket_render_02/
+datasets/visualizations/
+datasets/annotations_coco_keypoints.json
+datasets/annotations_coco_test.json
+datasets/annotations_coco_val.json
+datasets/annotations_coco_train.json
+datasets/kp.json
+datasets/sequences.example.json
+datasets/pretrain/
 evaluation/__pycache__/
 PCL/__pycache__/
 Simulation/dataset/

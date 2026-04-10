@@ -72,8 +72,8 @@ if __name__ == '__main__':
         description='在已有轨迹上叠加姿态摆动，生成 traj.csv')
     parser.add_argument(
         '--src', type=str,
-        default=os.path.join(here, 'trajectory_01.csv'),
-        help='源轨迹 CSV (默认: trajectory_01.csv)')
+        default=os.path.join(here, 'trajectory.csv'),
+        help='源轨迹 CSV (默认: trajectory.csv，由 generate_trajectory.py 生成)')
     parser.add_argument(
         '--out', type=str,
         default=os.path.join(here, 'traj.csv'),

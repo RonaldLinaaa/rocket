@@ -1,230 +1,145 @@
-# Simulation — 可复用火箭着陆段仿真数据集生成
+# Simulation — 轨迹仿真与 Blender 渲染脚本
+
+本目录包含两类内容：
+
+1. **Python 轨迹仿真**：在本地解释器中运行，生成 50 Hz 的六自由度 CSV，供 Blender 读入。
+2. **`rocket_trajectory_blender.py`**：在 **Blender 5.0.x** 的 Scripting 工作区中运行，清空并搭建沙漠着陆场景、箭体与机载相机，按 CSV 关键帧驱动动画，并配置 Cycles 渲染输出。
+
+**数据与标注文件**（渲染序列、`kp.json`、COCO JSON、预训练权重等）放在仓库 **`datasets/`** 下；其中大量路径已写入根目录 **`.gitignore`**，本地生成后使用，不一定随 Git 提交。
 
 ---
 
-## 流程总览
-
-```text
-generate_trajectory.py          ← 轨迹生成 (Falcon 9 物理仿真)
-        │
-        ▼
-  trajectory.csv  (50 Hz, 6-DoF)
-        │
-        ▼
-render_dataset.py               ← 合成图像渲染 (透视投影 + 数据增广)
-        │
-        ▼
-  dataset/                       ← RGB + 深度图 + 语义掩码 + YOLO 标注
-        │
-        ▼
-train.py                        ← PyTorch 目标检测训练
-        │
-        ▼
-  best_model.pth                 ← 着陆标志检测器
-```
-
----
-
-## 文件结构
+## 与全项目数据流水线的关系
 
 ```text
 Simulation/
-├── generate_trajectory.py   # Module 1: 轨迹生成器 (Falcon 9 物理模型)
-├── generate_trajectory.m    # Module 1: MATLAB 参考实现
-├── render_dataset.py        # Module 2: 合成图像渲染器
-├── export_video.py          # 按仿真时间将 rgb 帧导出为视频
-├── train.py                 # Module 3: PyTorch 训练流程
-├── requirements.txt         # Python 依赖
-├── README.md                # 本文件
-└── dataset/                 # [生成产物] 渲染输出数据集
-    ├── rgb/                 #   frame_XXXXX.png  (1920×1080 RGB)
-    ├── depth/               #   frame_XXXXX.png  (uint16 深度图)
-    ├── mask/                #   frame_XXXXX.png  (着陆标志掩码)
-    ├── annotations/labels/  #   frame_XXXXX.txt  (YOLO 格式)
-    ├── pose.csv             #   逐帧 6-DoF 位姿
-    ├── velocity.csv         #   逐帧速度
-    ├── acceleration.csv     #   逐帧加速度
-    ├── dataset_meta.json    #   数据集元信息
-    └── landing_simulation.mp4  # [可选] 按仿真时间导出的视频
+  generate_trajectory.py  ──►  trajectory.csv  (默认名，50 Hz, 6-DoF)
+        │
+        │  （可选）generate_vertical_recovery_traj.py  ──►  traj.csv（姿态扰动）
+        ▼
+  编辑 rocket_trajectory_blender.py 内 CSV_PATH，使其指向上述 CSV
+        │
+        ▼
+  Blender 5.0：Run Script → 预览 / Ctrl+F12 渲染图像序列
+        │
+        ▼
+datasets/
+  rocket_render_01/、rocket_render_02/  …  （各序列 rgb 等，见 .gitignore）
+  kp.json、annotations_coco_*.json       …  （标注与划分，见 .gitignore）
+  generate_coco_keypoints.py 等           （标注生成，若置于该目录）
 ```
 
-> **注**: `trajectory.csv`、`trajectory_plot.png` 和 `dataset/` 均为脚本生成产物，
-> 不纳入版本管理。可通过下方"快速启动"步骤重新生成。
+**坐标约定**：世界系 X 东、Y 北、Z 上；着陆区中心与标志物几何与 **`datasets/kp.json`**、项目根 **`README.md`** 中关键点表一致（`kp.json` 常被忽略不入库，以你本地文件为准）。
 
 ---
 
-## Module 1 — 轨迹生成 (`generate_trajectory.py`)
+## 目录结构（本目录）
 
-基于 Falcon 9 Block 5 一级着陆段真实参数进行数值积分仿真。
+```text
+Simulation/
+├── README.md
+├── requirements.txt              # 轨迹 --plot 可选依赖（numpy、matplotlib）
+├── generate_trajectory.py        # Falcon 9 一级着陆段量级 6-DoF 数值仿真
+├── generate_vertical_recovery_traj.py  # 可选：在 CSV 上叠加姿态摆动
+└── rocket_trajectory_blender.py  # Blender 5.0：场景 + 关键帧 + Cycles 渲染参数
+```
 
-### 物理模型
+**生成物**（如 `trajectory.csv`、`traj.csv`、`*_plot.png`）及 Blender 相对路径下的 `rocket_render/` 等，若不需要可删除；**`Simulation/dataset/`** 已列入 `.gitignore`。
 
-| 子系统 | 模型 |
-|--------|------|
-| 大气 | 指数密度: ρ(z) = 1.225 · exp(−z / 8500) |
-| 气动阻力 | F = ½ρv²C_dA,  C_d = 1.3 (含栅格翼),  A = π·1.83² m² |
-| 发动机 | Merlin 1D: 854 kN, 比冲 282 s, 质量实时递减 |
-| 垂直制导 | 恒减速剖面 + 速度跟踪修正 |
-| 水平制导 | ZEM/ZEV 多项式导引 + 低空阻尼 |
-| 点火判据 | 基于能量约束估算制动高度, 15% 安全裕度 |
-| 栅格翼 | 自由下落段侧向 PD 修正 (≤ 阻力 5%) |
-| 姿态 | 由推力矢量方向推算 + 一阶低通滤波 |
+---
 
-### 箭体参数
+## `generate_trajectory.py`
 
-| 参数 | 值 |
-|------|-----|
-| 干质量 | 25 800 kg |
-| 着陆段燃料 | 7 000 kg |
-| 箭体直径 | 3.66 m |
-| 初始高度 | 3 000 m |
-| 初始速度 | 1 000 km/h (277.8 m/s) |
-| 目标触地速度 | −2 m/s |
+基于 Falcon 9 Block 5 一级着陆段量级参数数值积分，输出理想条件下的下降轨迹。
 
-### 飞行阶段
+### 输出 CSV
 
-| 阶段 | 高度范围 | 主要作用 |
-|------|----------|----------|
-| 气动减速段 | 3000 m → ~1600 m | 大气阻力自然减速, 栅格翼水平修正 |
-| 着陆制动段 | ~1600 m → 0 m | Merlin 1D 发动机制动, 闭环制导收敛 |
-
-### 输出格式
-
-`trajectory.csv` — 50 Hz, 13 列:
+表头为：
 
 ```text
 time, x, y, z, roll, pitch, yaw, vx, vy, vz, ax, ay, az
 ```
 
-坐标系: X = East, Y = North, Z = Up,  原点 = 着陆标志物中心
+单位为：s、m、rad、m/s、m/s²；采样率 **50 Hz**。
 
 ### 运行
 
 ```bash
-# 生成轨迹
+conda activate rocket
+cd Simulation
+
 python generate_trajectory.py
-
-# 生成轨迹 + 可视化图表
 python generate_trajectory.py --plot
-
-# 指定输出路径
-python generate_trajectory.py --out my_trajectory.csv --plot
+python generate_trajectory.py --out trajectory_01.csv --plot
 ```
+
+脚本内 **`CSV_PATH` 默认示例**（见 `rocket_trajectory_blender.py`）曾使用 `trajectory_01.csv`；若你使用默认 `trajectory.csv`，请在 Blender 脚本中把 `CSV_PATH` 改为同一路径，或先用 `--out` 生成与脚本一致的文件名。
 
 ---
 
-## Module 2 — 合成图像渲染 (`render_dataset.py`)
+## `generate_vertical_recovery_traj.py`（可选）
 
-读取轨迹 CSV, 逐帧渲染箭载下视相机视角的合成图像。
-
-### 渲染内容
-
-- **地面**: 5000 m × 5000 m 混凝土纹理 (含裂缝、网格线)
-- **标志物**: 外圆环 (直径 40 m, 环宽 2.5 m) + H 型符号
-- **相机**: 透视投影, FOV = 60°
-- **增广**: 高斯噪声、运动模糊 (高度自适应)
-
-### 相机内参
-
-```text
-fx = fy = 1920 / (2·tan(30°)) ≈ 1662.8 px
-cx = 960,  cy = 540
-```
-
-### 运行
+在**不改变**位置、速度、加速度的前提下，对姿态角叠加受高度包络调制的扰动；近地面衰减至零。
 
 ```bash
-# 渲染全量数据集
-python render_dataset.py --traj trajectory.csv --out dataset
-
-# 降采样 (每 3 帧取 1 帧)
-python render_dataset.py --traj trajectory.csv --out dataset --skip 3
-
-# 限制最大帧数
-python render_dataset.py --traj trajectory.csv --out dataset --max_frames 200
+python generate_vertical_recovery_traj.py --src trajectory.csv --out traj.csv
 ```
 
-### 导出视频 (`export_video.py`)
-
-将 `dataset/rgb` 中的帧按 `pose.csv` 的仿真时间顺序合成为 MP4，**播放时长 = 仿真时长**（默认帧率 = 总帧数 / 总仿真时间，约 50 fps）。
-
-```bash
-# 导出到 dataset/landing_simulation.mp4（叠加时间与高度）
-python export_video.py
-
-# 指定数据集目录与输出文件名
-python export_video.py --data dataset --out my_landing.mp4
-
-# 不叠加时间/高度、固定 30 fps
-python export_video.py --no-overlay --fps 30
-```
+默认读取当前目录下 **`trajectory.csv`**，写出 **`traj.csv`**。
 
 ---
 
-## Module 3 — 训练流程 (`train.py`)
+## `rocket_trajectory_blender.py`（Blender 内运行）
 
-### 模型: `LandingMarkerDetector`
-
-- 骨干网络: 8 层卷积 (步距 32), ~8M 参数
-- 检测头: 3-anchor 单尺度 YOLO
-- 损失: L = λ\_obj · BCE + λ\_noobj · BCE + λ\_box · MSE
-
-### 运行
-
-```bash
-# 安装 PyTorch (如未安装)
-pip install torch torchvision
-
-# 训练
-python train.py --data dataset/ --epochs 50 --batch 8
-
-# 仅验证数据集 (无需 PyTorch)
-python train.py --data dataset/
-```
-
-### 对接主流框架
-
-```bash
-# YOLOv8
-yolo train data=dataset_yolo.yaml model=yolov8n.pt epochs=100
-```
+- **环境**：Blender **5.0.x**，内置 `bpy`，勿用系统 `python` 直接执行。
+- **使用前必改**：文件顶部 **`BASE_DIR`**、**`CSV_PATH`**（指向上一步生成的 CSV）、**`ENV_DIR`**（外部 `.blend` 环境资源路径，以你本机为准）。
+- **场景要点**（脚本注释摘要）：箭体喷口朝下软着陆；起始约 (50, −25, 3000) m，落点附近受控；地面为沙漠地形资产；着陆区为圆形标志 + **H 字**标志（海拔 0）；箭体尺寸与真实脚本内常量一致。
+- **时间轴**：`FPS = 50`，每行轨迹数据对应一帧；`KEYFRAME_STEP` 控制隔多少行插关键帧（默认 1 即每行一关键帧）。
+- **相机**：安装在箭体局部坐标系，欧拉角约 (15°, 0, −90°)（XYZ），下视着陆区。
+- **渲染**：Cycles，**1080×720**，128 samples，降噪；**运动模糊**开启；输出 PNG 序列，默认相对路径 **`//rocket_render//`**（相对于当前 Blender 工程文件目录）。可将输出目录整理到 **`datasets/rocket_render_01/rgb/`** 等供训练脚本读取。
 
 ---
 
-## 快速启动
+## `datasets/` 目录（仓库根下，与 Simulation 配合）
+
+逻辑上用于存放：
+
+| 内容 | 说明 |
+|------|------|
+| `rocket_render_01/`、`rocket_render_02/` | 各轨迹渲染得到的图像序列等 |
+| `visualizations/` | 可选可视化输出 |
+| `kp.json` | 9 个关键点 3D 坐标 |
+| `annotations_coco_keypoints.json` 及 train/val/test 划分 | COCO 关键点标注 |
+| `sequences.example.json` | 序列列表示例（若使用） |
+| `pretrain/` | RT-DETR / YOLO 预训练权重 |
+
+上述路径**多数在 `.gitignore 中**，以本地实际为准；论文或协作时需说明「生成方式」而非假定仓库内必含二进制数据。
+
+---
+
+## 依赖（仅轨迹 Python 脚本）
+
+| 脚本 | 运行环境 | 可选 |
+|------|-----------|------|
+| `generate_trajectory.py` | 标准库即可 | `numpy`、`matplotlib`（`--plot`） |
+| `generate_vertical_recovery_traj.py` | 标准库 | 无 |
+| `rocket_trajectory_blender.py` | **仅 Blender 自带 Python** | — |
 
 ```bash
-# 0. 安装依赖
 pip install -r requirements.txt
-
-# 1. 生成轨迹 (约 15 秒)
-python generate_trajectory.py --plot
-
-# 2. 渲染数据集 (全量约 10~30 分钟)
-python render_dataset.py --traj trajectory.csv --out dataset
-
-# 3. 训练检测器 (需 PyTorch)
-python train.py --data dataset/ --epochs 50 --batch 8
 ```
 
 ---
 
-## 环境依赖
+## 论文撰写时可对应的小节
 
-详见 `requirements.txt`。核心依赖:
-
-| 包 | 版本 | 用途 |
-|----|------|------|
-| numpy | ≥ 1.24 | 数值计算 |
-| opencv-python | ≥ 4.8 | 图像渲染 |
-| Pillow | ≥ 10.0 | 图像 I/O |
-| matplotlib | ≥ 3.7 | 轨迹可视化 (可选) |
-| torch | ≥ 2.0 | 训练 (可选) |
-| torchvision | ≥ 0.15 | 训练 (可选) |
-
-> 轨迹生成器 (`generate_trajectory.py`) 仅依赖 Python 标准库 (`math`, `csv`),
-> 无需额外安装即可运行。可视化功能需要 `matplotlib` 和 `numpy`。
+1. **标志物与坐标系**：H 字/圆形着陆区、`kp.json` 中 9 点定义。  
+2. **仿真轨迹**：本目录 `generate_trajectory.py` 物理模型、50 Hz、终端约束；可选姿态扰动脚本。  
+3. **仿真场景**：Blender 5.0、`rocket_trajectory_blender.py`、Cycles 与分辨率/运动模糊。  
+4. **数据采集**：渲染 PNG 序列组织、`datasets/` 中序列目录命名。  
+5. **标注**：COCO 关键点 JSON 及划分脚本。  
+6. **数据集特性**：轨迹条数、帧数、7:2:1 划分、距离分层评测等（与评测章节一致）。
 
 ---
 
-*2026 年 3 月*
+*与当前仓库 `.gitignore` 及目录布局对齐：2026 年 4 月*
